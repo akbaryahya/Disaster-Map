@@ -57,3 +57,22 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Blinking animation for new earthquakes */
+@keyframes blink-animation {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.earthquake-blink {
+  animation: blink-animation 1s ease-in-out infinite;
+  background-color: hsl(var(--destructive) / 0.15);
+  border-color: hsl(var(--destructive));
+}

@@ -45,7 +45,7 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
           const latLng = marker.getLatLng()
 
           // Fly to the marker position with animation
-          mapRef.current.flyTo(latLng, 8, {
+          mapRef.current.flyTo(latLng, 14, {
             animate: true,
             duration: 1,
           })
@@ -246,7 +246,7 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
         // Determine marker size based on magnitude
         const getMarkerSize = (magnitude: number) => {
           // Base size for all markers
-          const baseSize = 20
+          const baseSize = 30
 
           // Increase size for larger magnitudes
           if (magnitude >= 6) return baseSize + 10
@@ -260,7 +260,7 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
         const icon = L.divIcon({
           className: `earthquake-marker ${getMagnitudeClass(mag)}`,
           html: `${mag.toFixed(1)}M`,
-          iconSize: [markerSize, markerSize],
+          iconSize: [markerSize, 18],
           iconAnchor: [markerSize / 2, markerSize / 2],
         })
 

@@ -11,7 +11,7 @@ import { MagnitudeFilter } from "@/components/magnitude-filter"
 import { DepthFilter } from "@/components/depth-filter"
 import { EarthquakeStatistics } from "@/components/earthquake-statistics"
 import { DistanceSettings } from "@/components/distance-settings"
-import { ChevronDown, ChevronUp, List, BellRing, BellOff, MapPin, Volume2, VolumeX } from "lucide-react"
+import { ChevronDown, ChevronUp, List, BellRing, BellOff, MapPin, Volume2, VolumeX, Map } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MapLayerSelector } from "@/components/map-layer-selector"
 import { EarthquakeDetails } from "@/components/earthquake-details"
@@ -21,8 +21,10 @@ import { toast } from "@/components/ui/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { calculateDistance, formatDistance } from "@/utils/distance"
+import { loadEarthquakeHistory, addToEarthquakeHistory, cleanupOldHistory } from "@/utils/history-storage"
 import type { EarthquakeMapRef } from "@/components/earthquake-map"
 import { EarthquakeSortMenu, type EarthquakeSortOption } from "@/components/earthquake-sort-menu"
+import type { EarthquakeChange, EarthquakeHistory, NewEarthquake } from "@/types/earthquake"
 
 // Import Leaflet map component dynamically to avoid SSR issues
 const EarthquakeMap = dynamic(() => import("@/components/earthquake-map"), {
@@ -34,18 +36,8 @@ const EarthquakeMap = dynamic(() => import("@/components/earthquake-map"), {
   ),
 })
 
-// Define the interface for earthquake changes
-interface EarthquakeChange {
-  property: string
-  oldValue: any
-  newValue: any
-  timestamp: number
-}
-
-// Define the interface for earthquake history
-interface EarthquakeHistory {
-  [id: string]: EarthquakeChange[]
-}
+// Duration for blinking effect in milliseconds
+const BLINK_DURATION = 10000 // 10 seconds
 
 export default function Home() {
   const [earthquakes, setEarthquakes] = useState<any[]>([])
@@ -68,6 +60,16 @@ export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [earthquakeHistory, setEarthquakeHistory] = useState<EarthquakeHistory>({})
   const [sortOption, setSortOption] = useState<EarthquakeSortOption>("time")
+  const [historyLoaded, setHistoryLoaded] = useState(false)
+
+  // Add state for tracking newly detected earthquakes
+  const [newEarthquakes, setNewEarthquakes] = useState<NewEarthquake[]>([])
+
+  // Add state for auto-pan feature
+  const [autoPanEnabled, setAutoPanEnabled] = useState<boolean>(true)
+
+  // Ref for the earthquake list container to scroll to new earthquakes
+  const earthquakeListRef = useRef<HTMLDivElement>(null)
 
   // Create a ref for the audio context
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -77,6 +79,72 @@ export default function Home() {
 
   // Create a ref to store the previous earthquakes for comparison
   const prevEarthquakesRef = useRef<{ [id: string]: any }>({})
+
+  // Load earthquake history from localStorage on component mount
+  useEffect(() => {
+    const loadedHistory = loadEarthquakeHistory()
+    setEarthquakeHistory(loadedHistory)
+    setHistoryLoaded(true)
+
+    // Load auto-pan setting from localStorage
+    const savedAutoPan = localStorage.getItem("earthquakeAutoPan")
+    if (savedAutoPan !== null) {
+      setAutoPanEnabled(savedAutoPan === "true")
+    }
+
+    // Load alerts setting from localStorage
+    const savedAlerts = localStorage.getItem("earthquakeAlertsEnabled")
+    if (savedAlerts !== null) {
+      setAlertsEnabled(savedAlerts === "true")
+    }
+
+    // Load sound setting from localStorage
+    const savedSound = localStorage.getItem("earthquakeSoundEnabled")
+    if (savedSound !== null) {
+      setSoundEnabled(savedSound === "true")
+    }
+
+    // Schedule periodic cleanup of old history entries
+    const cleanupInterval = setInterval(
+      () => {
+        setEarthquakeHistory((prevHistory) => cleanupOldHistory(prevHistory))
+      },
+      24 * 60 * 60 * 1000,
+    ) // Run once a day
+
+    return () => {
+      clearInterval(cleanupInterval)
+    }
+  }, [])
+
+  // Effect to remove earthquakes from the "new" list after the blink duration
+  useEffect(() => {
+    if (newEarthquakes.length === 0) return
+
+    const now = Date.now()
+    const timeouts: NodeJS.Timeout[] = []
+
+    newEarthquakes.forEach((quake) => {
+      const timeRemaining = Math.max(0, quake.detectedAt + BLINK_DURATION - now)
+
+      if (timeRemaining > 0) {
+        const timeout = setTimeout(() => {
+          setNewEarthquakes((prev) => prev.filter((eq) => eq.id !== quake.id))
+        }, timeRemaining)
+
+        timeouts.push(timeout)
+      } else {
+        // If the earthquake has already been blinking for longer than the duration,
+        // remove it from the list immediately
+        setNewEarthquakes((prev) => prev.filter((eq) => eq.id !== quake.id))
+      }
+    })
+
+    // Clean up timeouts on unmount or when newEarthquakes changes
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout))
+    }
+  }, [newEarthquakes])
 
   // Function to play a beep sound using Web Audio API
   const playAlertSound = () => {
@@ -163,6 +231,60 @@ export default function Home() {
     setUserLocation(location)
   }
 
+  // Toggle auto-pan feature
+  const handleToggleAutoPan = () => {
+    const newValue = !autoPanEnabled
+    setAutoPanEnabled(newValue)
+    localStorage.setItem("earthquakeAutoPan", newValue.toString())
+
+    toast({
+      title: newValue ? "Auto-Pan Enabled" : "Auto-Pan Disabled",
+      description: newValue
+        ? "Map will automatically move to new earthquakes."
+        : "Map will stay in place when new earthquakes occur.",
+      variant: "default",
+    })
+  }
+
+  // Toggle alerts
+  const handleToggleAlerts = () => {
+    const newValue = !alertsEnabled
+    setAlertsEnabled(newValue)
+    localStorage.setItem("earthquakeAlertsEnabled", newValue.toString())
+
+    // Show toast to confirm the change
+    toast({
+      title: newValue ? "Alerts Enabled" : "Alerts Disabled",
+      description: newValue
+        ? "You will now receive alerts for new earthquakes."
+        : "You will no longer receive alerts for new earthquakes.",
+      variant: "default",
+    })
+  }
+
+  // Toggle sound
+  const handleToggleSound = () => {
+    const newValue = !soundEnabled
+    setSoundEnabled(newValue)
+    localStorage.setItem("earthquakeSoundEnabled", newValue.toString())
+
+    // Initialize audio context if turning on sound
+    if (newValue && !audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      } catch (err) {
+        console.error("Error initializing AudioContext:", err)
+      }
+    }
+
+    // Show toast to confirm the change
+    toast({
+      title: newValue ? "Alert Sound Enabled" : "Alert Sound Disabled",
+      description: newValue ? "Alert sounds have been turned on." : "Alert sounds have been turned off.",
+      variant: "default",
+    })
+  }
+
   // Filter earthquakes based on magnitude, depth, and optionally distance
   const filteredEarthquakes = earthquakes.filter((quake) => {
     const magnitude = quake.properties.mag
@@ -192,7 +314,7 @@ export default function Home() {
     const newEarthquakesMap: { [id: string]: any } = {}
     const updatedEarthquakes: string[] = []
     const newlyAddedEarthquakes: any[] = []
-    const updatedHistory = { ...earthquakeHistory }
+    let updatedHistory = { ...earthquakeHistory }
 
     // Process each earthquake in the new data
     newEarthquakes.forEach((quake) => {
@@ -221,13 +343,8 @@ export default function Home() {
         if (changes.length > 0) {
           updatedEarthquakes.push(id)
 
-          // Initialize history array if it doesn't exist
-          if (!updatedHistory[id]) {
-            updatedHistory[id] = []
-          }
-
-          // Add new changes to history
-          updatedHistory[id] = [...updatedHistory[id], ...changes]
+          // Use our utility to add changes to history and persist to localStorage
+          updatedHistory = addToEarthquakeHistory(updatedHistory, id, changes)
         }
       } else {
         // This is a new earthquake
@@ -245,6 +362,22 @@ export default function Home() {
     }
   }
 
+  // Function to scroll to an earthquake in the list
+  const scrollToEarthquake = (earthquakeId: string) => {
+    if (!earthquakeListRef.current) return
+
+    // Find the earthquake element
+    const earthquakeElement = earthquakeListRef.current.querySelector(`[data-earthquake-id="${earthquakeId}"]`)
+
+    if (earthquakeElement) {
+      // Scroll the element into view with smooth behavior
+      earthquakeElement.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      })
+    }
+  }
+
   const fetchEarthquakeData = async () => {
     try {
       setLoading(true)
@@ -257,68 +390,108 @@ export default function Home() {
 
       const data = await response.json()
 
-      // Compare with previous earthquakes to detect changes
-      const { newEarthquakesMap, updatedEarthquakes, newlyAddedEarthquakes } = compareEarthquakes(
-        data.features,
-        prevEarthquakesRef.current,
-      )
+      // Only compare earthquakes if history has been loaded
+      if (historyLoaded) {
+        // Compare with previous earthquakes to detect changes
+        const { newEarthquakesMap, updatedEarthquakes, newlyAddedEarthquakes } = compareEarthquakes(
+          data.features,
+          prevEarthquakesRef.current,
+        )
 
-      // Update the earthquakes state
-      setEarthquakes(data.features)
-      setLastUpdated(new Date())
+        // Update the earthquakes state
+        setEarthquakes(data.features)
+        setLastUpdated(new Date())
 
-      // Store the current earthquakes for future comparison
-      prevEarthquakesRef.current = newEarthquakesMap
+        // Store the current earthquakes for future comparison
+        prevEarthquakesRef.current = newEarthquakesMap
 
-      // Handle new earthquakes if alerts are enabled
-      if (alertsEnabled && newlyAddedEarthquakes.length > 0) {
-        // Sort by magnitude (highest first) to alert about the most significant one
-        const sortedNewEarthquakes = [...newlyAddedEarthquakes].sort((a, b) => b.properties.mag - a.properties.mag)
+        // Handle new earthquakes if alerts are enabled
+        if (alertsEnabled && newlyAddedEarthquakes.length > 0) {
+          // Sort by magnitude (highest first) to alert about the most significant one
+          const sortedNewEarthquakes = [...newlyAddedEarthquakes].sort((a, b) => b.properties.mag - a.properties.mag)
 
-        const mostSignificantEarthquake = sortedNewEarthquakes[0]
+          const mostSignificantEarthquake = sortedNewEarthquakes[0]
 
-        // Check if the earthquake is within the distance threshold (if location is available)
-        let withinThreshold = true
-        let distance = null
+          // Check if the earthquake is within the distance threshold (if location is available)
+          let withinThreshold = true
+          let distance = null
 
-        if (userLocation) {
-          const [longitude, latitude] = mostSignificantEarthquake.geometry.coordinates
-          distance = calculateDistance(userLocation.lat, userLocation.lng, latitude, longitude)
-          withinThreshold = distance <= distanceThreshold
-        }
-
-        // Only alert if within threshold or no location set
-        if (withinThreshold) {
-          // Play alert sound
-          playAlertSound()
-
-          // Show toast notification
-          toast({
-            title: "New Earthquake Detected",
-            description: `M${mostSignificantEarthquake.properties.mag.toFixed(1)} - ${
-              mostSignificantEarthquake.properties.place
-            }${distance ? ` (${formatDistance(distance)} away)` : ""}`,
-            variant: "destructive",
-          })
-
-          // Navigate to the new earthquake
-          if (mapRef.current) {
-            mapRef.current.flyToEarthquake(mostSignificantEarthquake.id)
+          if (userLocation) {
+            const [longitude, latitude] = mostSignificantEarthquake.geometry.coordinates
+            distance = calculateDistance(userLocation.lat, userLocation.lng, latitude, longitude)
+            withinThreshold = distance <= distanceThreshold
           }
 
-          // Highlight the new earthquake
-          setHighlightedEarthquakeId(mostSignificantEarthquake.id)
-        }
-      }
+          // Only alert if within threshold or no location set
+          if (withinThreshold) {
+            // Play alert sound
+            playAlertSound()
 
-      // Handle updated earthquakes
-      if (updatedEarthquakes.length > 0) {
-        // Show toast for updated earthquakes
-        toast({
-          title: "Earthquake Data Updated",
-          description: `${updatedEarthquakes.length} earthquake(s) have been updated with new information.`,
-          variant: "default",
+            // Add the earthquake to the new earthquakes list for blinking
+            setNewEarthquakes((prev) => [...prev, { id: mostSignificantEarthquake.id, detectedAt: Date.now() }])
+
+            // Show toast notification with action button to view on map
+            toast({
+              title: "New Earthquake Detected",
+              description: `M${mostSignificantEarthquake.properties.mag.toFixed(1)} - ${
+                mostSignificantEarthquake.properties.place
+              }${distance ? ` (${formatDistance(distance)} away)` : ""}`,
+              variant: "destructive",
+              action: (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (mapRef.current) {
+                      mapRef.current.flyToEarthquake(mostSignificantEarthquake.id)
+                    }
+                  }}
+                  className="bg-background text-foreground hover:bg-background/90"
+                >
+                  <Map className="h-4 w-4 mr-1" />
+                  View on Map
+                </Button>
+              ),
+            })
+
+            // Highlight the new earthquake
+            setHighlightedEarthquakeId(mostSignificantEarthquake.id)
+
+            // Make sure the list is visible
+            setListVisible(true)
+
+            // Wait a moment for the list to render, then scroll to the earthquake
+            setTimeout(() => {
+              scrollToEarthquake(mostSignificantEarthquake.id)
+            }, 300)
+
+            // If auto-pan is enabled, automatically move the map to the new earthquake
+            if (autoPanEnabled && mapRef.current) {
+              mapRef.current.flyToEarthquake(mostSignificantEarthquake.id)
+            }
+          }
+        }
+
+        // Handle updated earthquakes
+        if (updatedEarthquakes.length > 0) {
+          // Show toast for updated earthquakes
+          toast({
+            title: "Earthquake Data Updated",
+            description: `${updatedEarthquakes.length} earthquake(s) have been updated with new information.`,
+            variant: "default",
+          })
+        }
+      } else {
+        // If history hasn't been loaded yet, just set the earthquakes without comparison
+        setEarthquakes(data.features)
+        setLastUpdated(new Date())
+
+        // Initialize the previous earthquakes map
+        const initialEarthquakesMap: { [id: string]: any } = {}
+        data.features.forEach((quake: any) => {
+          initialEarthquakesMap[quake.id] = quake
         })
+        prevEarthquakesRef.current = initialEarthquakesMap
       }
 
       setError(null)
@@ -334,12 +507,12 @@ export default function Home() {
     // Fetch data immediately on mount
     fetchEarthquakeData()
 
-    // Set up interval to fetch data every minute
-    const intervalId = setInterval(fetchEarthquakeData, 60000)
+    // Set up interval to fetch data every 5 sec
+    const intervalId = setInterval(fetchEarthquakeData, 1000 * 5)
 
     // Clean up interval on component unmount
     return () => clearInterval(intervalId)
-  }, [])
+  }, [historyLoaded]) // Re-run when historyLoaded changes
 
   // Re-run fetch when distance threshold or user location changes
   useEffect(() => {
@@ -387,41 +560,6 @@ export default function Home() {
     // setHighlightedEarthquakeId(null)
   }
 
-  // Toggle alerts
-  const handleToggleAlerts = () => {
-    setAlertsEnabled(!alertsEnabled)
-
-    // Show toast to confirm the change
-    toast({
-      title: alertsEnabled ? "Alerts Disabled" : "Alerts Enabled",
-      description: alertsEnabled
-        ? "You will no longer receive alerts for new earthquakes."
-        : "You will now receive alerts for new earthquakes.",
-      variant: "default",
-    })
-  }
-
-  // Toggle sound
-  const handleToggleSound = () => {
-    setSoundEnabled(!soundEnabled)
-
-    // Initialize audio context if turning on sound
-    if (!soundEnabled && !audioContextRef.current) {
-      try {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-      } catch (err) {
-        console.error("Error initializing AudioContext:", err)
-      }
-    }
-
-    // Show toast to confirm the change
-    toast({
-      title: soundEnabled ? "Alert Sound Disabled" : "Alert Sound Enabled",
-      description: soundEnabled ? "Alert sounds have been turned off." : "Alert sounds have been turned on.",
-      variant: "default",
-    })
-  }
-
   // Test sound button handler
   const handleTestSound = () => {
     playAlertSound()
@@ -430,6 +568,14 @@ export default function Home() {
       description: "If you didn't hear anything, check your device volume or browser permissions.",
       variant: "default",
     })
+  }
+
+  // Get the total number of history entries
+  const totalHistoryEntries = Object.values(earthquakeHistory).reduce((total, changes) => total + changes.length, 0)
+
+  // Check if an earthquake is new (for blinking effect)
+  const isNewEarthquake = (earthquakeId: string) => {
+    return newEarthquakes.some((eq) => eq.id === earthquakeId)
   }
 
   return (
@@ -456,24 +602,6 @@ export default function Home() {
       <div className="absolute top-0 left-0 right-0 z-10 bg-background/80 backdrop-blur-sm p-4 flex justify-between items-center shadow-md">
         <h1 className="text-2xl font-bold">Earthquake Monitor</h1>
         <div className="flex items-center gap-2">
-          {/* Add alert toggle */}
-          <div className="flex items-center gap-2 mr-2">
-            <Switch id="alerts" checked={alertsEnabled} onCheckedChange={handleToggleAlerts} />
-            <Label htmlFor="alerts" className="flex items-center gap-1">
-              {alertsEnabled ? <BellRing className="h-4 w-4 text-yellow-500" /> : <BellOff className="h-4 w-4" />}
-              <span className="sr-only md:not-sr-only md:inline-block">Alerts</span>
-            </Label>
-          </div>
-
-          {/* Add sound toggle */}
-          <div className="flex items-center gap-2 mr-2">
-            <Switch id="sound" checked={soundEnabled} onCheckedChange={handleToggleSound} />
-            <Label htmlFor="sound" className="flex items-center gap-1">
-              {soundEnabled ? <Volume2 className="h-4 w-4 text-green-500" /> : <VolumeX className="h-4 w-4" />}
-              <span className="sr-only md:not-sr-only md:inline-block">Sound</span>
-            </Label>
-          </div>
-
           {/* Map layer selector */}
           <MapLayerSelector selectedLayer={selectedMapLayer} onLayerChange={setSelectedMapLayer} />
 
@@ -505,6 +633,11 @@ export default function Home() {
               <CardTitle className="text-lg">Controls</CardTitle>
               <CardDescription>
                 {lastUpdated && <span className="text-xs">Last updated: {lastUpdated.toLocaleTimeString()}</span>}
+                {totalHistoryEntries > 0 && (
+                  <span className="text-xs block mt-1">
+                    History: {totalHistoryEntries} updates for {Object.keys(earthquakeHistory).length} earthquakes
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -537,16 +670,75 @@ export default function Home() {
                       onLocationChange={handleLocationChange}
                     />
 
-                    {/* Sound settings */}
-                    {soundEnabled && (
-                      <div className="pt-4 border-t">
-                        <h3 className="text-sm font-medium mb-2">Sound Settings</h3>
-                        <Button variant="outline" size="sm" onClick={handleTestSound} className="w-full">
+                    {/* Notification settings */}
+                    <div className="pt-4 border-t">
+                      <h3 className="text-sm font-medium mb-3">Notification Settings</h3>
+
+                      {/* Alerts toggle */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          {alertsEnabled ? (
+                            <BellRing className="h-4 w-4 text-yellow-500" />
+                          ) : (
+                            <BellOff className="h-4 w-4" />
+                          )}
+                          <Label htmlFor="alerts-setting" className="text-sm">
+                            Earthquake alerts
+                          </Label>
+                        </div>
+                        <Switch id="alerts-setting" checked={alertsEnabled} onCheckedChange={handleToggleAlerts} />
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        {alertsEnabled
+                          ? "You will receive notifications for new earthquakes"
+                          : "You will not receive notifications for new earthquakes"}
+                      </p>
+
+                      {/* Sound toggle */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          {soundEnabled ? (
+                            <Volume2 className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <VolumeX className="h-4 w-4" />
+                          )}
+                          <Label htmlFor="sound-setting" className="text-sm">
+                            Alert sounds
+                          </Label>
+                        </div>
+                        <Switch id="sound-setting" checked={soundEnabled} onCheckedChange={handleToggleSound} />
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {soundEnabled ? "Sound will play when new earthquakes are detected" : "Alerts will be silent"}
+                      </p>
+
+                      {/* Test sound button */}
+                      {soundEnabled && (
+                        <Button variant="outline" size="sm" onClick={handleTestSound} className="w-full mt-2">
                           <Volume2 className="h-4 w-4 mr-2" />
                           Test Alert Sound
                         </Button>
+                      )}
+                    </div>
+
+                    {/* Map settings */}
+                    <div className="pt-4 border-t">
+                      <h3 className="text-sm font-medium mb-3">Map Settings</h3>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          {autoPanEnabled ? <Map className="h-4 w-4 text-blue-500" /> : <Map className="h-4 w-4" />}
+                          <Label htmlFor="auto-pan-setting" className="text-sm">
+                            Auto-pan to new earthquakes
+                          </Label>
+                        </div>
+                        <Switch id="auto-pan-setting" checked={autoPanEnabled} onCheckedChange={handleToggleAutoPan} />
                       </div>
-                    )}
+                      <p className="text-xs text-muted-foreground">
+                        {autoPanEnabled
+                          ? "Map will automatically move to show new earthquakes"
+                          : "Map will stay in place when new earthquakes occur"}
+                      </p>
+                    </div>
                   </div>
                 </TabsContent>
               </Tabs>
@@ -565,6 +757,9 @@ export default function Home() {
                   <CardTitle>Recent Earthquakes</CardTitle>
                   <CardDescription>
                     Showing {filteredEarthquakes.length} of {earthquakes.length} earthquakes
+                    {newEarthquakes.length > 0 && (
+                      <span className="ml-2 text-destructive font-medium">({newEarthquakes.length} new)</span>
+                    )}
                   </CardDescription>
                 </div>
                 <EarthquakeSortMenu
@@ -590,9 +785,18 @@ export default function Home() {
               ) : error ? (
                 <div className="text-center py-4 text-red-500">{error}</div>
               ) : (
-                <div className="space-y-4 max-h-[30vh] overflow-y-auto pr-2">
+                <div ref={earthquakeListRef} className="space-y-4 max-h-[30vh] overflow-y-auto pr-2">
                   {earthquakesWithDistance
                     .sort((a, b) => {
+                      // Always show new earthquakes at the top if sorting by time
+                      if (sortOption === "time") {
+                        const aIsNew = isNewEarthquake(a.id)
+                        const bIsNew = isNewEarthquake(b.id)
+
+                        if (aIsNew && !bIsNew) return -1
+                        if (!aIsNew && bIsNew) return 1
+                      }
+
                       switch (sortOption) {
                         case "distance":
                           // If distance is available, sort by distance (closest first)
@@ -626,19 +830,28 @@ export default function Home() {
                       // Check if this earthquake has history (has been updated)
                       const hasUpdates = earthquakeHistory[quake.id] && earthquakeHistory[quake.id].length > 0
 
+                      // Check if this is a new earthquake (for blinking effect)
+                      const isNew = isNewEarthquake(quake.id)
+
                       return (
                         <div
                           key={quake.id}
+                          data-earthquake-id={quake.id}
                           className={`border rounded-lg p-4 hover:bg-background/90 transition-colors cursor-pointer ${
                             highlightedEarthquakeId === quake.id ? "ring-2 ring-primary" : ""
-                          }`}
+                          } ${isNew ? "earthquake-blink" : ""}`}
                           onClick={() => handleListItemClick(quake)}
                         >
                           <div className="flex justify-between items-start">
                             <div>
                               <h3 className="font-medium flex items-center gap-1">
                                 {quake.properties.place || "Unknown Location"}
-                                {hasUpdates && (
+                                {isNew && (
+                                  <Badge variant="destructive" className="text-xs ml-1">
+                                    NEW
+                                  </Badge>
+                                )}
+                                {hasUpdates && !isNew && (
                                   <Badge variant="outline" className="text-xs ml-1">
                                     Updated
                                   </Badge>
