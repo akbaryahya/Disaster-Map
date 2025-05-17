@@ -11,7 +11,7 @@ import { MagnitudeFilter } from "@/components/magnitude-filter"
 import { DepthFilter } from "@/components/depth-filter"
 import { EarthquakeStatistics } from "@/components/earthquake-statistics"
 import { DistanceSettings } from "@/components/distance-settings"
-import { ChevronDown, ChevronUp, List, BellRing, BellOff, MapPin } from "lucide-react"
+import { ChevronDown, ChevronUp, List, BellRing, BellOff, MapPin, Volume2, VolumeX } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MapLayerSelector } from "@/components/map-layer-selector"
 import { EarthquakeDetails } from "@/components/earthquake-details"
@@ -63,10 +63,14 @@ export default function Home() {
 
   // Add state for alerts, history, and location
   const [alertsEnabled, setAlertsEnabled] = useState(true)
+  const [soundEnabled, setSoundEnabled] = useState(true)
   const [distanceThreshold, setDistanceThreshold] = useState<number>(1000)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [earthquakeHistory, setEarthquakeHistory] = useState<EarthquakeHistory>({})
   const [sortOption, setSortOption] = useState<EarthquakeSortOption>("time")
+
+  // Create a ref for the audio context
+  const audioContextRef = useRef<AudioContext | null>(null)
 
   // Create a ref to the map component
   const mapRef = useRef<EarthquakeMapRef>(null)
@@ -74,18 +78,71 @@ export default function Home() {
   // Create a ref to store the previous earthquakes for comparison
   const prevEarthquakesRef = useRef<{ [id: string]: any }>({})
 
-  // Create a ref for the alert sound
-  const alertSoundRef = useRef<HTMLAudioElement | null>(null)
+  // Function to play a beep sound using Web Audio API
+  const playAlertSound = () => {
+    if (!soundEnabled) return
 
-  // Initialize the alert sound
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      alertSoundRef.current = new Audio("/alert.mp3")
+    try {
+      // Create AudioContext if it doesn't exist
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      }
+
+      const context = audioContextRef.current
+
+      // Create oscillator
+      const oscillator = context.createOscillator()
+      const gainNode = context.createGain()
+
+      // Connect nodes
+      oscillator.connect(gainNode)
+      gainNode.connect(context.destination)
+
+      // Set properties for a pleasant alert sound
+      oscillator.type = "sine"
+      oscillator.frequency.setValueAtTime(880, context.currentTime) // A5 note
+
+      // Fade in and out to avoid clicks
+      gainNode.gain.setValueAtTime(0, context.currentTime)
+      gainNode.gain.linearRampToValueAtTime(0.5, context.currentTime + 0.1)
+      gainNode.gain.linearRampToValueAtTime(0, context.currentTime + 0.5)
+
+      // Start and stop
+      oscillator.start(context.currentTime)
+      oscillator.stop(context.currentTime + 0.5)
+
+      // Create a second tone for a more attention-grabbing alert
+      setTimeout(() => {
+        if (!audioContextRef.current) return
+
+        const oscillator2 = audioContextRef.current.createOscillator()
+        const gainNode2 = audioContextRef.current.createGain()
+
+        oscillator2.connect(gainNode2)
+        gainNode2.connect(audioContextRef.current.destination)
+
+        oscillator2.type = "sine"
+        oscillator2.frequency.setValueAtTime(1046.5, audioContextRef.current.currentTime) // C6 note
+
+        gainNode2.gain.setValueAtTime(0, audioContextRef.current.currentTime)
+        gainNode2.gain.linearRampToValueAtTime(0.5, audioContextRef.current.currentTime + 0.1)
+        gainNode2.gain.linearRampToValueAtTime(0, audioContextRef.current.currentTime + 0.5)
+
+        oscillator2.start(audioContextRef.current.currentTime)
+        oscillator2.stop(audioContextRef.current.currentTime + 0.5)
+      }, 300)
+    } catch (err) {
+      console.error("Error playing alert sound:", err)
     }
+  }
 
+  // Clean up audio context on unmount
+  useEffect(() => {
     return () => {
-      if (alertSoundRef.current) {
-        alertSoundRef.current = null
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch((err) => {
+          console.error("Error closing AudioContext:", err)
+        })
       }
     }
   }, [])
@@ -233,9 +290,7 @@ export default function Home() {
         // Only alert if within threshold or no location set
         if (withinThreshold) {
           // Play alert sound
-          if (alertSoundRef.current) {
-            alertSoundRef.current.play().catch((e) => console.error("Error playing alert sound:", e))
-          }
+          playAlertSound()
 
           // Show toast notification
           toast({
@@ -346,6 +401,37 @@ export default function Home() {
     })
   }
 
+  // Toggle sound
+  const handleToggleSound = () => {
+    setSoundEnabled(!soundEnabled)
+
+    // Initialize audio context if turning on sound
+    if (!soundEnabled && !audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      } catch (err) {
+        console.error("Error initializing AudioContext:", err)
+      }
+    }
+
+    // Show toast to confirm the change
+    toast({
+      title: soundEnabled ? "Alert Sound Disabled" : "Alert Sound Enabled",
+      description: soundEnabled ? "Alert sounds have been turned off." : "Alert sounds have been turned on.",
+      variant: "default",
+    })
+  }
+
+  // Test sound button handler
+  const handleTestSound = () => {
+    playAlertSound()
+    toast({
+      title: "Testing Alert Sound",
+      description: "If you didn't hear anything, check your device volume or browser permissions.",
+      variant: "default",
+    })
+  }
+
   return (
     <div className="relative w-full h-screen overflow-hidden">
       {/* Map container - takes full screen */}
@@ -376,6 +462,15 @@ export default function Home() {
             <Label htmlFor="alerts" className="flex items-center gap-1">
               {alertsEnabled ? <BellRing className="h-4 w-4 text-yellow-500" /> : <BellOff className="h-4 w-4" />}
               <span className="sr-only md:not-sr-only md:inline-block">Alerts</span>
+            </Label>
+          </div>
+
+          {/* Add sound toggle */}
+          <div className="flex items-center gap-2 mr-2">
+            <Switch id="sound" checked={soundEnabled} onCheckedChange={handleToggleSound} />
+            <Label htmlFor="sound" className="flex items-center gap-1">
+              {soundEnabled ? <Volume2 className="h-4 w-4 text-green-500" /> : <VolumeX className="h-4 w-4" />}
+              <span className="sr-only md:not-sr-only md:inline-block">Sound</span>
             </Label>
           </div>
 
@@ -436,10 +531,23 @@ export default function Home() {
                   </div>
                 </TabsContent>
                 <TabsContent value="settings" className="pt-4">
-                  <DistanceSettings
-                    onDistanceThresholdChange={handleDistanceThresholdChange}
-                    onLocationChange={handleLocationChange}
-                  />
+                  <div className="space-y-6">
+                    <DistanceSettings
+                      onDistanceThresholdChange={handleDistanceThresholdChange}
+                      onLocationChange={handleLocationChange}
+                    />
+
+                    {/* Sound settings */}
+                    {soundEnabled && (
+                      <div className="pt-4 border-t">
+                        <h3 className="text-sm font-medium mb-2">Sound Settings</h3>
+                        <Button variant="outline" size="sm" onClick={handleTestSound} className="w-full">
+                          <Volume2 className="h-4 w-4 mr-2" />
+                          Test Alert Sound
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </TabsContent>
               </Tabs>
             </CardContent>
