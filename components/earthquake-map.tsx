@@ -17,6 +17,7 @@ interface EarthquakeMapProps {
 // Define the ref interface for map controls
 export interface EarthquakeMapRef {
   flyToEarthquake: (earthquakeId: string) => void
+  flyToCoordinates: (lat: number, lng: number, zoom?: number) => void
 }
 
 const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
@@ -35,17 +36,29 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
     const userLocationMarkerRef = useRef<L.Marker | null>(null)
     // Create a ref to store the user location circle
     const userLocationCircleRef = useRef<L.Circle | null>(null)
+    // Create a ref to store the earthquakes data for direct access
+    const earthquakesDataRef = useRef<any[]>([])
+
+    // Update earthquakes data ref when earthquakes prop changes
+    useEffect(() => {
+      earthquakesDataRef.current = earthquakes
+    }, [earthquakes])
 
     // Expose methods to parent component via ref
     useImperativeHandle(ref, () => ({
       flyToEarthquake: (earthquakeId: string) => {
+        console.log(`Attempting to fly to earthquake: ${earthquakeId}`)
+
+        // First try to find the marker directly
         const marker = markersById.current[earthquakeId]
+
         if (marker && mapRef.current) {
+          console.log(`Found marker for ${earthquakeId}, flying to it`)
           // Get the marker's position
           const latLng = marker.getLatLng()
 
           // Fly to the marker position with animation
-          mapRef.current.flyTo(latLng, 14, {
+          mapRef.current.flyTo(latLng, 10, {
             animate: true,
             duration: 1,
           })
@@ -57,6 +70,45 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
           setTimeout(() => {
             marker.openPopup()
           }, 1000)
+
+          return
+        }
+
+        // If marker not found, try to find the earthquake in the data
+        const earthquake = earthquakesDataRef.current.find((quake) => quake.id === earthquakeId)
+
+        if (earthquake && mapRef.current) {
+          console.log(`Found earthquake data for ${earthquakeId}, flying to coordinates`)
+          const [longitude, latitude] = earthquake.geometry.coordinates
+
+          // Fly to the coordinates
+          mapRef.current.flyTo([latitude, longitude], 10, {
+            animate: true,
+            duration: 1,
+          })
+
+          // Try to find the marker again after a short delay
+          // This handles cases where the marker might be created after this function is called
+          setTimeout(() => {
+            const marker = markersById.current[earthquakeId]
+            if (marker) {
+              highlightMarker(marker)
+              marker.openPopup()
+            }
+          }, 500)
+
+          return
+        }
+
+        console.error(`Could not find earthquake or marker for ID: ${earthquakeId}`)
+      },
+
+      flyToCoordinates: (lat: number, lng: number, zoom = 10) => {
+        if (mapRef.current) {
+          mapRef.current.flyTo([lat, lng], zoom, {
+            animate: true,
+            duration: 1,
+          })
         }
       },
     }))
@@ -301,6 +353,9 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
         // Add marker to the layer group
         marker.addTo(markersLayerRef.current!)
       })
+
+      // Log the number of markers created for debugging
+      //console.log(`Created ${Object.keys(markersById.current).length} markers`)
     }, [earthquakes, onEarthquakeSelect])
 
     // Update highlighted marker when highlightedEarthquakeId changes

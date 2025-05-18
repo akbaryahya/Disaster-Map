@@ -285,6 +285,36 @@ export default function Home() {
     })
   }
 
+  // Function to navigate to an earthquake on the map
+  const navigateToEarthquake = (earthquake: any) => {
+    if (!mapRef.current) {
+      console.error("Map reference not available")
+      return
+    }
+
+    try {
+      // First try using the flyToEarthquake method which uses the marker
+      mapRef.current.flyToEarthquake(earthquake.id)
+
+      // As a fallback, also try using the direct coordinates
+      // This will work even if the marker isn't ready yet
+      setTimeout(() => {
+        if (mapRef.current) {
+          const [longitude, latitude] = earthquake.geometry.coordinates
+          mapRef.current.flyToCoordinates(latitude, longitude, 10)
+        }
+      }, 300)
+    } catch (error) {
+      console.error("Error navigating to earthquake:", error)
+
+      // Last resort fallback - use direct coordinates
+      if (mapRef.current) {
+        const [longitude, latitude] = earthquake.geometry.coordinates
+        mapRef.current.flyToCoordinates(latitude, longitude, 10)
+      }
+    }
+  }
+
   // Filter earthquakes based on magnitude, depth, and optionally distance
   const filteredEarthquakes = earthquakes.filter((quake) => {
     const magnitude = quake.properties.mag
@@ -442,9 +472,7 @@ export default function Home() {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    if (mapRef.current) {
-                      mapRef.current.flyToEarthquake(mostSignificantEarthquake.id)
-                    }
+                    navigateToEarthquake(mostSignificantEarthquake)
                   }}
                   className="bg-background text-foreground hover:bg-background/90"
                 >
@@ -466,8 +494,11 @@ export default function Home() {
             }, 300)
 
             // If auto-pan is enabled, automatically move the map to the new earthquake
-            if (autoPanEnabled && mapRef.current) {
-              mapRef.current.flyToEarthquake(mostSignificantEarthquake.id)
+            if (autoPanEnabled) {
+              // Wait a short moment to ensure the map and markers are ready
+              setTimeout(() => {
+                navigateToEarthquake(mostSignificantEarthquake)
+              }, 500)
             }
           }
         }
@@ -548,9 +579,7 @@ export default function Home() {
     setHighlightedEarthquakeId(quake.id)
 
     // Fly to the earthquake location on the map
-    if (mapRef.current) {
-      mapRef.current.flyToEarthquake(quake.id)
-    }
+    navigateToEarthquake(quake)
   }
 
   // Close the details panel
