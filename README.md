@@ -2,8 +2,8 @@
 
 *Automatically synced with your [v0.dev](https://v0.dev) deployments*
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/yuukis-projects-cbe69c53/v0-leaflet-js-map-update)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/0TWwYNgTnTZ)
+[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://map.volcanoyt.com)
+[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/initial-project-7C4T4sePzum)
 
 ## Overview
 
@@ -14,13 +14,13 @@ Any changes you make to your deployed app will be automatically pushed to this r
 
 Your project is live at:
 
-**[https://vercel.com/yuukis-projects-cbe69c53/v0-leaflet-js-map-update](https://vercel.com/yuukis-projects-cbe69c53/v0-leaflet-js-map-update)**
+**[https://map.volcanoyt.com](https://map.volcanoyt.com)**
 
 ## Build your app
 
 Continue building your app on:
 
-**[https://v0.dev/chat/projects/0TWwYNgTnTZ](https://v0.dev/chat/projects/0TWwYNgTnTZ)**
+**[https://v0.dev/chat/initial-project-7C4T4sePzum](https://v0.dev/chat/initial-project-7C4T4sePzum)**
 
 ## How It Works
 
