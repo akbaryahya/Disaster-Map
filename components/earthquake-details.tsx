@@ -8,9 +8,24 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EarthquakeHistory } from "./earthquake-history"
+import type { EarthquakeInfo } from "@/types/earthquake"
+
+// Add this helper function at the top of the file, outside the component
+const getStatusLabel = (status: number): string => {
+  switch (status) {
+    case 1:
+      return "Automatic"
+    case 2:
+      return "Manual"
+    case 3:
+      return "Confirmed"
+    default:
+      return "Unknown"
+  }
+}
 
 interface EarthquakeDetailsProps {
-  earthquake: any
+  earthquake: EarthquakeInfo
   onClose: () => void
   history: any[]
 }
@@ -18,31 +33,10 @@ interface EarthquakeDetailsProps {
 export function EarthquakeDetails({ earthquake, onClose, history = [] }: EarthquakeDetailsProps) {
   if (!earthquake) return null
 
-  const { properties, geometry } = earthquake
-  const {
-    mag,
-    place,
-    time,
-    updated,
-    url,
-    felt,
-    cdi,
-    mmi,
-    alert,
-    status,
-    tsunami,
-    sig,
-    net,
-    code,
-    ids,
-    sources,
-    types,
-    title,
-    magType,
-  } = properties
+  const { magnitude, place, time, source, depth, tsunami, status, _id, location, city, type } = earthquake
 
   // Format coordinates
-  const [longitude, latitude, depth] = geometry.coordinates
+  const [longitude, latitude] = location.coordinates
 
   // Determine magnitude color
   const getMagnitudeColor = (magnitude: number) => {
@@ -75,11 +69,14 @@ export function EarthquakeDetails({ earthquake, onClose, history = [] }: Earthqu
         <div className="flex justify-between items-start">
           <div>
             <CardTitle className="text-xl flex items-center gap-2">
-              <Badge className={getMagnitudeColor(mag)}>M{mag.toFixed(1)}</Badge>
-              {title}
+              <Badge className={getMagnitudeColor(magnitude)}>
+                M{magnitude.toFixed(1)} {type}
+              </Badge>
+              {place}
             </CardTitle>
             <CardDescription>
-              {new Date(time).toLocaleString()} ({formatDistanceToNow(new Date(time), { addSuffix: true })})
+              {new Date(time * 1000).toLocaleString()} (
+              {formatDistanceToNow(new Date(time * 1000), { addSuffix: true })})
             </CardDescription>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
@@ -115,84 +112,80 @@ export function EarthquakeDetails({ earthquake, onClose, history = [] }: Earthqu
                 <p className="text-sm">{depth.toFixed(1)} km</p>
               </div>
               <div>
-                <h3 className="text-sm font-medium mb-1">Magnitude Type</h3>
-                <p className="text-sm">{magType}</p>
+                <h3 className="text-sm font-medium mb-1">Source</h3>
+                <p className="text-sm">{source}</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium mb-1">Status</h3>
-                <p className="text-sm capitalize">{status}</p>
+                <p className="text-sm">{getStatusLabel(status)}</p>
               </div>
             </div>
 
-            {(alert || tsunami > 0 || felt) && (
+            {tsunami > 0 && (
               <>
                 <Separator />
                 <div className="space-y-2">
-                  <h3 className="text-sm font-medium">Alerts & Impact</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {alert && (
-                      <div className="flex items-center gap-1">
-                        <Badge className={getAlertColor(alert)}>
-                          <AlertCircle className="h-3 w-3 mr-1" />
-                          Alert: {alert.toUpperCase()}
-                        </Badge>
-                      </div>
-                    )}
-                    {tsunami > 0 && <Badge variant="destructive">Tsunami Warning</Badge>}
-                    {felt && felt > 0 && <Badge variant="outline">Felt by {felt} people</Badge>}
+                  <h3 className="text-sm font-medium text-red-600 dark:text-red-400 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Tsunami Warning
+                  </h3>
+                  <p className="text-sm text-red-600 dark:text-red-400">
+                    This earthquake may generate a tsunami. Monitor local emergency channels for evacuation
+                    instructions.
+                  </p>
+                  <Badge variant="destructive" className="mt-1">
+                    TSUNAMI POTENTIAL
+                  </Badge>
+                </div>
+              </>
+            )}
+
+            {city && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">Nearest City</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <h3 className="text-sm font-medium mb-1">City</h3>
+                      <p className="text-sm">{city.name}</p>
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-medium mb-1">Country</h3>
+                      <p className="text-sm">{city.country}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium mb-1">Distance</h3>
+                    <p className="text-sm">{city.distance.toFixed(1)} km</p>
                   </div>
                 </div>
               </>
             )}
 
-            <Separator />
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <h3 className="text-sm font-medium mb-1">Significance</h3>
-                <p className="text-sm">{sig || "N/A"}</p>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium mb-1">Network</h3>
-                <p className="text-sm">{net}</p>
-              </div>
-            </div>
-
-            {(cdi || mmi) && (
-              <div className="grid grid-cols-2 gap-4">
-                {cdi && (
-                  <div>
-                    <h3 className="text-sm font-medium mb-1">Intensity (CDI)</h3>
-                    <p className="text-sm">{cdi.toFixed(1)}</p>
-                  </div>
-                )}
-                {mmi && (
-                  <div>
-                    <h3 className="text-sm font-medium mb-1">Intensity (MMI)</h3>
-                    <p className="text-sm">{mmi.toFixed(1)}</p>
-                  </div>
-                )}
-              </div>
-            )}
-
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
-              <span>Last updated: {new Date(updated).toLocaleString()}</span>
+              <span>Event time: {new Date(time * 1000).toLocaleString()}</span>
             </div>
           </CardContent>
         </TabsContent>
 
         <TabsContent value="history">
           <CardContent>
-            <EarthquakeHistory earthquakeId={earthquake.id} history={history} />
+            <EarthquakeHistory earthquakeId={earthquake._id} history={history} />
           </CardContent>
         </TabsContent>
       </Tabs>
 
       <CardFooter>
-        <Button variant="outline" className="w-full" asChild>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2">
-            View on USGS <ExternalLink className="h-3 w-3" />
+        <Button variant="outline" className="w-full">
+          <a
+            href={`https://www.emsc-csem.org/Earthquake/earthquake.php?id=${_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2"
+          >
+            View More Details <ExternalLink className="h-3 w-3" />
           </a>
         </Button>
       </CardFooter>

@@ -4,10 +4,25 @@ import { useEffect, useRef, useImperativeHandle, forwardRef } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import { MAP_LAYERS } from "./map-layer-selector"
+import type { EarthquakeInfo } from "@/types/earthquake"
+
+// Add this helper function at the top of the file, outside the component
+const getStatusLabel = (status: number): string => {
+  switch (status) {
+    case 1:
+      return "Automatic"
+    case 2:
+      return "Manual"
+    case 3:
+      return "Confirmed"
+    default:
+      return "Unknown"
+  }
+}
 
 // Define the props interface
 interface EarthquakeMapProps {
-  earthquakes: any[]
+  earthquakes: (EarthquakeInfo & { calculatedDistance?: number })[]
   mapLayerId?: string
   onEarthquakeSelect?: (id: string) => void
   highlightedEarthquakeId?: string | null
@@ -37,7 +52,7 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
     // Create a ref to store the user location circle
     const userLocationCircleRef = useRef<L.Circle | null>(null)
     // Create a ref to store the earthquakes data for direct access
-    const earthquakesDataRef = useRef<any[]>([])
+    const earthquakesDataRef = useRef<(EarthquakeInfo & { calculatedDistance?: number })[]>([])
 
     // Update earthquakes data ref when earthquakes prop changes
     useEffect(() => {
@@ -75,11 +90,11 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
         }
 
         // If marker not found, try to find the earthquake in the data
-        const earthquake = earthquakesDataRef.current.find((quake) => quake.id === earthquakeId)
+        const earthquake = earthquakesDataRef.current.find((quake) => quake._id === earthquakeId)
 
         if (earthquake && mapRef.current) {
           console.log(`Found earthquake data for ${earthquakeId}, flying to coordinates`)
-          const [longitude, latitude] = earthquake.geometry.coordinates
+          const [longitude, latitude] = earthquake.location.coordinates
 
           // Fly to the coordinates
           mapRef.current.flyTo([latitude, longitude], 10, {
@@ -279,13 +294,13 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
 
       // Add new markers for each earthquake
       earthquakes.forEach((quake) => {
-        const { coordinates } = quake.geometry
-        const { mag, place, time, url } = quake.properties
+        const { coordinates } = quake.location
+        const { magnitude, place, time, source } = quake
 
-        // Leaflet uses [lat, lng] while GeoJSON uses [lng, lat, depth]
-        const lat = coordinates[1]
+        // Leaflet uses [lat, lng] while GeoJSON uses [lng, lat]
         const lng = coordinates[0]
-        const depth = coordinates[2]
+        const lat = coordinates[1]
+        const depth = quake.depth
 
         // Determine marker class based on magnitude
         const getMagnitudeClass = (magnitude: number) => {
@@ -306,12 +321,12 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
           return baseSize
         }
 
-        const markerSize = getMarkerSize(mag)
+        const markerSize = getMarkerSize(magnitude)
 
         // Create custom icon with magnitude text
         const icon = L.divIcon({
-          className: `earthquake-marker ${getMagnitudeClass(mag)}`,
-          html: `${mag.toFixed(1)}M`,
+          className: `earthquake-marker ${getMagnitudeClass(magnitude)}`,
+          html: `${magnitude.toFixed(1)}M`,
           iconSize: [markerSize, 18],
           iconAnchor: [markerSize / 2, markerSize / 2],
         })
@@ -324,31 +339,41 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
 
         // Add popup with earthquake information
         let popupContent = `
-          <strong>Magnitude:</strong> ${mag}<br>
+          <strong>Magnitude:</strong> ${magnitude.toFixed(1)} ${quake.type}<br>
           <strong>Location:</strong> ${place}<br>
-          <strong>Time:</strong> ${new Date(time).toLocaleString()}<br>
+          <strong>Time:</strong> ${new Date(time * 1000).toLocaleString()}<br>
           <strong>Depth:</strong> ${depth.toFixed(1)} km<br>
+          <strong>Source:</strong> ${source}<br>
+          <strong>Status:</strong> ${getStatusLabel(quake.status)}<br>
         `
 
-        // Add distance information if available
-        if (quake.distance !== undefined) {
-          popupContent += `<strong>Distance:</strong> ${quake.distance.toFixed(1)} km from you<br>`
+        // Add tsunami warning if applicable
+        if (quake.tsunami === 1) {
+          popupContent += `<div style="color: red; font-weight: bold; margin-top: 5px;">⚠️ TSUNAMI WARNING</div>`
         }
 
-        popupContent += `<a href="${url}" target="_blank" rel="noopener noreferrer">More info</a>`
+        // Add city information if available
+        if (quake.city) {
+          popupContent += `<strong>Nearest City:</strong> ${quake.city.name}, ${quake.city.country} (${quake.city.distance.toFixed(1)} km)<br>`
+        }
+
+        // Add distance information if available
+        if (quake.calculatedDistance !== undefined) {
+          popupContent += `<strong>Distance from you:</strong> ${quake.calculatedDistance.toFixed(1)} km<br>`
+        }
 
         marker.bindPopup(popupContent)
 
         // Add click handler to select the earthquake
         if (onEarthquakeSelect) {
           marker.on("click", () => {
-            onEarthquakeSelect(quake.id)
+            onEarthquakeSelect(quake._id)
             highlightMarker(marker)
           })
         }
 
         // Store the marker by ID for quick access
-        markersById.current[quake.id] = marker
+        markersById.current[quake._id] = marker
 
         // Add marker to the layer group
         marker.addTo(markersLayerRef.current!)

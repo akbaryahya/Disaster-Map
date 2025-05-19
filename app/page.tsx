@@ -24,7 +24,22 @@ import { calculateDistance, formatDistance } from "@/utils/distance"
 import { loadEarthquakeHistory, addToEarthquakeHistory, cleanupOldHistory } from "@/utils/history-storage"
 import type { EarthquakeMapRef } from "@/components/earthquake-map"
 import { EarthquakeSortMenu, type EarthquakeSortOption } from "@/components/earthquake-sort-menu"
-import type { EarthquakeChange, EarthquakeHistory, NewEarthquake } from "@/types/earthquake"
+import type { EarthquakeChange, EarthquakeHistory, NewEarthquake, EarthquakeInfo } from "@/types/earthquake"
+import { TsunamiWarning } from "@/components/tsunami-warning"
+
+// Add this helper function at the top of the file, outside the component
+const getStatusLabel = (status: number): string => {
+  switch (status) {
+    case 1:
+      return "Automatic"
+    case 2:
+      return "Manual"
+    case 3:
+      return "Confirmed"
+    default:
+      return "Unknown"
+  }
+}
 
 // Import Leaflet map component dynamically to avoid SSR issues
 const EarthquakeMap = dynamic(() => import("@/components/earthquake-map"), {
@@ -42,8 +57,11 @@ const BLINK_DURATION = 10000 // 10 seconds
 // Local storage key for map layer preference
 const MAP_LAYER_STORAGE_KEY = "earthquakeMapLayer"
 
+// API endpoint for earthquake data
+const EARTHQUAKE_API_URL = "https://volcanoyt.com/api/v1/list/earthquake"
+
 export default function Home() {
-  const [earthquakes, setEarthquakes] = useState<any[]>([])
+  const [earthquakes, setEarthquakes] = useState<EarthquakeInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -52,7 +70,7 @@ export default function Home() {
   const [controlsVisible, setControlsVisible] = useState(true)
   const [listVisible, setListVisible] = useState(true)
   const [selectedMapLayer, setSelectedMapLayer] = useState("osm")
-  const [selectedEarthquake, setSelectedEarthquake] = useState<any | null>(null)
+  const [selectedEarthquake, setSelectedEarthquake] = useState<EarthquakeInfo | null>(null)
   const [highlightedEarthquakeId, setHighlightedEarthquakeId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("filters")
 
@@ -81,7 +99,7 @@ export default function Home() {
   const mapRef = useRef<EarthquakeMapRef>(null)
 
   // Create a ref to store the previous earthquakes for comparison
-  const prevEarthquakesRef = useRef<{ [id: string]: any }>({})
+  const prevEarthquakesRef = useRef<{ [id: string]: EarthquakeInfo }>({})
 
   // Load earthquake history and settings from localStorage on component mount
   useEffect(() => {
@@ -309,7 +327,7 @@ export default function Home() {
   }
 
   // Function to navigate to an earthquake on the map
-  const navigateToEarthquake = (earthquake: any) => {
+  const navigateToEarthquake = (earthquake: EarthquakeInfo) => {
     if (!mapRef.current) {
       console.error("Map reference not available")
       return
@@ -317,13 +335,13 @@ export default function Home() {
 
     try {
       // First try using the flyToEarthquake method which uses the marker
-      mapRef.current.flyToEarthquake(earthquake.id)
+      mapRef.current.flyToEarthquake(earthquake._id)
 
       // As a fallback, also try using the direct coordinates
       // This will work even if the marker isn't ready yet
       setTimeout(() => {
         if (mapRef.current) {
-          const [longitude, latitude] = earthquake.geometry.coordinates
+          const [longitude, latitude] = earthquake.location.coordinates
           mapRef.current.flyToCoordinates(latitude, longitude, 10)
         }
       }, 300)
@@ -332,7 +350,7 @@ export default function Home() {
 
       // Last resort fallback - use direct coordinates
       if (mapRef.current) {
-        const [longitude, latitude] = earthquake.geometry.coordinates
+        const [longitude, latitude] = earthquake.location.coordinates
         mapRef.current.flyToCoordinates(latitude, longitude, 10)
       }
     }
@@ -340,8 +358,8 @@ export default function Home() {
 
   // Filter earthquakes based on magnitude, depth, and optionally distance
   const filteredEarthquakes = earthquakes.filter((quake) => {
-    const magnitude = quake.properties.mag
-    const depth = quake.geometry.coordinates[2]
+    const magnitude = quake.magnitude
+    const depth = quake.depth
 
     // Apply magnitude and depth filters
     const passesBasicFilters =
@@ -356,22 +374,22 @@ export default function Home() {
   // Calculate distances for earthquakes if user location is available
   const earthquakesWithDistance = userLocation
     ? filteredEarthquakes.map((quake) => {
-        const [longitude, latitude, depth] = quake.geometry.coordinates
+        const [longitude, latitude] = quake.location.coordinates
         const distance = calculateDistance(userLocation.lat, userLocation.lng, latitude, longitude)
-        return { ...quake, distance }
+        return { ...quake, calculatedDistance: distance }
       })
     : filteredEarthquakes
 
   // Function to compare earthquakes and detect changes
-  const compareEarthquakes = (newEarthquakes: any[], prevEarthquakes: { [id: string]: any }) => {
-    const newEarthquakesMap: { [id: string]: any } = {}
+  const compareEarthquakes = (newEarthquakes: EarthquakeInfo[], prevEarthquakes: { [id: string]: EarthquakeInfo }) => {
+    const newEarthquakesMap: { [id: string]: EarthquakeInfo } = {}
     const updatedEarthquakes: string[] = []
-    const newlyAddedEarthquakes: any[] = []
+    const newlyAddedEarthquakes: EarthquakeInfo[] = []
     let updatedHistory = { ...earthquakeHistory }
 
     // Process each earthquake in the new data
     newEarthquakes.forEach((quake) => {
-      const id = quake.id
+      const id = quake._id
       newEarthquakesMap[id] = quake
 
       // Check if this earthquake existed before
@@ -380,13 +398,13 @@ export default function Home() {
         const changes: EarthquakeChange[] = []
 
         // Check for property changes
-        const propertiesToCheck = ["mag", "place", "status", "alert", "tsunami"]
+        const propertiesToCheck = ["magnitude", "place", "status", "tsunami", "depth"]
         propertiesToCheck.forEach((prop) => {
-          if (oldQuake.properties[prop] !== quake.properties[prop]) {
+          if (oldQuake[prop as keyof EarthquakeInfo] !== quake[prop as keyof EarthquakeInfo]) {
             changes.push({
               property: prop,
-              oldValue: oldQuake.properties[prop],
-              newValue: quake.properties[prop],
+              oldValue: oldQuake[prop as keyof EarthquakeInfo],
+              newValue: quake[prop as keyof EarthquakeInfo],
               timestamp: Date.now(),
             })
           }
@@ -434,25 +452,25 @@ export default function Home() {
   const fetchEarthquakeData = async () => {
     try {
       setLoading(true)
-      // Using USGS Earthquake API - past day all earthquakes
-      const response = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson")
+      // Using volcanoyt.com API for earthquake data
+      const response = await fetch(EARTHQUAKE_API_URL)
 
       if (!response.ok) {
         throw new Error("Failed to fetch earthquake data")
       }
 
-      const data = await response.json()
+      const data = (await response.json()) as EarthquakeInfo[]
 
       // Only compare earthquakes if history has been loaded
       if (historyLoaded) {
         // Compare with previous earthquakes to detect changes
         const { newEarthquakesMap, updatedEarthquakes, newlyAddedEarthquakes } = compareEarthquakes(
-          data.features,
+          data,
           prevEarthquakesRef.current,
         )
 
         // Update the earthquakes state
-        setEarthquakes(data.features)
+        setEarthquakes(data)
         setLastUpdated(new Date())
 
         // Store the current earthquakes for future comparison
@@ -461,7 +479,7 @@ export default function Home() {
         // Handle new earthquakes if alerts are enabled
         if (alertsEnabled && newlyAddedEarthquakes.length > 0) {
           // Sort by magnitude (highest first) to alert about the most significant one
-          const sortedNewEarthquakes = [...newlyAddedEarthquakes].sort((a, b) => b.properties.mag - a.properties.mag)
+          const sortedNewEarthquakes = [...newlyAddedEarthquakes].sort((a, b) => b.magnitude - a.magnitude)
 
           const mostSignificantEarthquake = sortedNewEarthquakes[0]
 
@@ -470,7 +488,7 @@ export default function Home() {
           let distance = null
 
           if (userLocation) {
-            const [longitude, latitude] = mostSignificantEarthquake.geometry.coordinates
+            const [longitude, latitude] = mostSignificantEarthquake.location.coordinates
             distance = calculateDistance(userLocation.lat, userLocation.lng, latitude, longitude)
             withinThreshold = distance <= distanceThreshold
           }
@@ -481,13 +499,13 @@ export default function Home() {
             playAlertSound()
 
             // Add the earthquake to the new earthquakes list for blinking
-            setNewEarthquakes((prev) => [...prev, { id: mostSignificantEarthquake.id, detectedAt: Date.now() }])
+            setNewEarthquakes((prev) => [...prev, { id: mostSignificantEarthquake._id, detectedAt: Date.now() }])
 
             // Show toast notification with action button to view on map
             toast({
               title: "New Earthquake Detected",
-              description: `M${mostSignificantEarthquake.properties.mag.toFixed(1)} - ${
-                mostSignificantEarthquake.properties.place
+              description: `M${mostSignificantEarthquake.magnitude.toFixed(1)} - ${
+                mostSignificantEarthquake.place
               }${distance ? ` (${formatDistance(distance)} away)` : ""}`,
               variant: "destructive",
               action: (
@@ -506,14 +524,14 @@ export default function Home() {
             })
 
             // Highlight the new earthquake
-            setHighlightedEarthquakeId(mostSignificantEarthquake.id)
+            setHighlightedEarthquakeId(mostSignificantEarthquake._id)
 
             // Make sure the list is visible
             setListVisible(true)
 
             // Wait a moment for the list to render, then scroll to the earthquake
             setTimeout(() => {
-              scrollToEarthquake(mostSignificantEarthquake.id)
+              scrollToEarthquake(mostSignificantEarthquake._id)
             }, 300)
 
             // If auto-pan is enabled, automatically move the map to the new earthquake
@@ -537,13 +555,13 @@ export default function Home() {
         }
       } else {
         // If history hasn't been loaded yet, just set the earthquakes without comparison
-        setEarthquakes(data.features)
+        setEarthquakes(data)
         setLastUpdated(new Date())
 
         // Initialize the previous earthquakes map
-        const initialEarthquakesMap: { [id: string]: any } = {}
-        data.features.forEach((quake: any) => {
-          initialEarthquakesMap[quake.id] = quake
+        const initialEarthquakesMap: { [id: string]: EarthquakeInfo } = {}
+        data.forEach((quake) => {
+          initialEarthquakesMap[quake._id] = quake
         })
         prevEarthquakesRef.current = initialEarthquakesMap
       }
@@ -562,7 +580,7 @@ export default function Home() {
     fetchEarthquakeData()
 
     // Set up interval to fetch data every 5 sec
-    const intervalId = setInterval(fetchEarthquakeData, 1000 * 5)
+    const intervalId = setInterval(fetchEarthquakeData, 5000) // 5 seconds
 
     // Clean up interval on component unmount
     return () => clearInterval(intervalId)
@@ -591,15 +609,15 @@ export default function Home() {
 
   // Handle earthquake selection from the map
   const handleEarthquakeSelect = (id: string) => {
-    const earthquake = earthquakes.find((quake) => quake.id === id)
+    const earthquake = earthquakes.find((quake) => quake._id === id)
     setSelectedEarthquake(earthquake || null)
     setHighlightedEarthquakeId(id)
   }
 
   // Handle earthquake selection from the list
-  const handleListItemClick = (quake: any) => {
+  const handleListItemClick = (quake: EarthquakeInfo) => {
     // Set the highlighted earthquake ID for visual feedback
-    setHighlightedEarthquakeId(quake.id)
+    setHighlightedEarthquakeId(quake._id)
 
     // Fly to the earthquake location on the map
     navigateToEarthquake(quake)
@@ -840,10 +858,10 @@ export default function Home() {
                 <div ref={earthquakeListRef} className="space-y-4 max-h-[30vh] overflow-y-auto pr-2">
                   {earthquakesWithDistance
                     .sort((a, b) => {
-                      // Always show new earthquakes at the top if sorting by time
+                      // Always show new earthquakes at the top
                       if (sortOption === "time") {
-                        const aIsNew = isNewEarthquake(a.id)
-                        const bIsNew = isNewEarthquake(b.id)
+                        const aIsNew = isNewEarthquake(a._id)
+                        const bIsNew = isNewEarthquake(b._id)
 
                         if (aIsNew && !bIsNew) return -1
                         if (!aIsNew && bIsNew) return 1
@@ -852,52 +870,57 @@ export default function Home() {
                       switch (sortOption) {
                         case "distance":
                           // If distance is available, sort by distance (closest first)
-                          if (a.distance !== undefined && b.distance !== undefined) {
-                            return a.distance - b.distance
+                          if (
+                            "calculatedDistance" in a &&
+                            "calculatedDistance" in b &&
+                            a.calculatedDistance !== undefined &&
+                            b.calculatedDistance !== undefined
+                          ) {
+                            return a.calculatedDistance - b.calculatedDistance
                           }
                           // Fall back to time if distances aren't available
-                          return b.properties.time - a.properties.time
+                          return b.time - a.time
 
                         case "magnitude":
                           // Sort by magnitude (largest first)
-                          return b.properties.mag - a.properties.mag
+                          return b.magnitude - a.magnitude
 
                         case "depth":
                           // Sort by depth (deepest first)
-                          return b.geometry.coordinates[2] - a.geometry.coordinates[2]
+                          return b.depth - a.depth
 
                         case "updates":
                           // Sort by number of updates (most first)
-                          const aUpdates = earthquakeHistory[a.id]?.length || 0
-                          const bUpdates = earthquakeHistory[b.id]?.length || 0
+                          const aUpdates = earthquakeHistory[a._id]?.length || 0
+                          const bUpdates = earthquakeHistory[b._id]?.length || 0
                           return bUpdates - aUpdates
 
                         case "time":
                         default:
                           // Sort by time (most recent first)
-                          return b.properties.time - a.properties.time
+                          return b.time - a.time
                       }
                     })
                     .map((quake) => {
                       // Check if this earthquake has history (has been updated)
-                      const hasUpdates = earthquakeHistory[quake.id] && earthquakeHistory[quake.id].length > 0
+                      const hasUpdates = earthquakeHistory[quake._id] && earthquakeHistory[quake._id].length > 0
 
                       // Check if this is a new earthquake (for blinking effect)
-                      const isNew = isNewEarthquake(quake.id)
+                      const isNew = isNewEarthquake(quake._id)
 
                       return (
                         <div
-                          key={quake.id}
-                          data-earthquake-id={quake.id}
+                          key={quake._id}
+                          data-earthquake-id={quake._id}
                           className={`border rounded-lg p-4 hover:bg-background/90 transition-colors cursor-pointer ${
-                            highlightedEarthquakeId === quake.id ? "ring-2 ring-primary" : ""
-                          } ${isNew ? "earthquake-blink" : ""}`}
+                            highlightedEarthquakeId === quake._id ? "ring-2 ring-primary" : ""
+                          } ${isNew ? "earthquake-blink" : ""} ${quake.tsunami === 1 ? "border-red-500" : ""}`}
                           onClick={() => handleListItemClick(quake)}
                         >
                           <div className="flex justify-between items-start">
                             <div>
                               <h3 className="font-medium flex items-center gap-1">
-                                {quake.properties.place || "Unknown Location"}
+                                {quake.place || "Unknown Location"}
                                 {isNew && (
                                   <Badge variant="destructive" className="text-xs ml-1">
                                     NEW
@@ -908,43 +931,46 @@ export default function Home() {
                                     Updated
                                   </Badge>
                                 )}
+                                {quake.tsunami === 1 && (
+                                  <Badge variant="destructive" className="text-xs ml-1">
+                                    TSUNAMI
+                                  </Badge>
+                                )}
                               </h3>
                               <p className="text-sm text-muted-foreground">
-                                {new Date(quake.properties.time).toLocaleString()} (
-                                {formatDistanceToNow(new Date(quake.properties.time), { addSuffix: true })})
+                                {new Date(quake.time * 1000).toLocaleString()} (
+                                {formatDistanceToNow(new Date(quake.time * 1000), { addSuffix: true })})
                               </p>
                             </div>
                             <div className="flex flex-col items-end gap-1">
-                              <Badge className={getMagnitudeColor(quake.properties.mag)}>
-                                M{quake.properties.mag.toFixed(1)}
+                              <Badge className={getMagnitudeColor(quake.magnitude)}>
+                                M{quake.magnitude.toFixed(1)} {quake.type}
                               </Badge>
-                              <Badge variant="outline" className={getDepthColor(quake.geometry.coordinates[2])}>
-                                {quake.geometry.coordinates[2].toFixed(1)} km
+                              <Badge variant="outline" className={getDepthColor(quake.depth)}>
+                                {quake.depth.toFixed(1)} km
                               </Badge>
-                              {sortOption === "updates" && earthquakeHistory[quake.id]?.length > 0 && (
-                                <Badge variant="secondary">{earthquakeHistory[quake.id].length} updates</Badge>
+                              {sortOption === "updates" && earthquakeHistory[quake._id]?.length > 0 && (
+                                <Badge variant="secondary">{earthquakeHistory[quake._id].length} updates</Badge>
                               )}
                             </div>
                           </div>
-                          <div className="mt-2 text-sm flex justify-between">
-                            {sortOption === "depth" ? (
-                              <span className="text-muted-foreground">
-                                <strong>Depth:</strong> {quake.geometry.coordinates[2].toFixed(1)} km
-                              </span>
-                            ) : sortOption === "time" ? (
-                              <span className="text-muted-foreground">
-                                <strong>Time:</strong>{" "}
-                                {formatDistanceToNow(new Date(quake.properties.time), { addSuffix: true })}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">
-                                <strong>Location:</strong> {quake.properties.place.split(",")[0]}
-                              </span>
-                            )}
-                            {quake.distance !== undefined && (
+                          <div className="mt-2 text-sm flex flex-wrap justify-between gap-y-1">
+                            <span className="text-muted-foreground">
+                              <strong>Source:</strong> {quake.source}
+                            </span>
+                            <span className="text-muted-foreground">
+                              <strong>Status:</strong> {getStatusLabel(quake.status)}
+                            </span>
+                            {quake.city && (
                               <span className="flex items-center gap-1 text-muted-foreground">
                                 <MapPin className="h-3 w-3" />
-                                {formatDistance(quake.distance)} away
+                                {quake.city.name}, {quake.city.country} ({quake.city.distance.toFixed(1)} km)
+                              </span>
+                            )}
+                            {quake.calculatedDistance !== undefined && (
+                              <span className="flex items-center gap-1 text-muted-foreground">
+                                <MapPin className="h-3 w-3" />
+                                {formatDistance(quake.calculatedDistance)} away
                               </span>
                             )}
                           </div>
@@ -964,13 +990,20 @@ export default function Home() {
           <EarthquakeDetails
             earthquake={selectedEarthquake}
             onClose={handleCloseDetails}
-            history={earthquakeHistory[selectedEarthquake.id] || []}
+            history={earthquakeHistory[selectedEarthquake._id] || []}
           />
         </div>
       )}
 
       {/* Toast notifications */}
       <Toaster />
+      <TsunamiWarning
+        earthquakes={earthquakes}
+        onViewEarthquake={(earthquake) => {
+          setSelectedEarthquake(earthquake)
+          navigateToEarthquake(earthquake)
+        }}
+      />
     </div>
   )
 }

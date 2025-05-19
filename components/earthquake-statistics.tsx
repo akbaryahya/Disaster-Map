@@ -2,10 +2,11 @@
 
 import { useMemo } from "react"
 import { Badge } from "@/components/ui/badge"
+import type { EarthquakeInfo } from "@/types/earthquake"
 
 interface EarthquakeStatisticsProps {
-  earthquakes: any[]
-  filteredEarthquakes: any[]
+  earthquakes: EarthquakeInfo[]
+  filteredEarthquakes: EarthquakeInfo[]
 }
 
 // Define magnitude categories
@@ -23,7 +24,7 @@ export function EarthquakeStatistics({ earthquakes, filteredEarthquakes }: Earth
   const allStats = useMemo(() => {
     return MAGNITUDE_CATEGORIES.map((category) => {
       const count = earthquakes.filter((quake) => {
-        const mag = quake.properties.mag
+        const mag = quake.magnitude
         return mag >= category.range[0] && mag < category.range[1]
       }).length
       return { ...category, count }
@@ -34,7 +35,7 @@ export function EarthquakeStatistics({ earthquakes, filteredEarthquakes }: Earth
   const filteredStats = useMemo(() => {
     return MAGNITUDE_CATEGORIES.map((category) => {
       const count = filteredEarthquakes.filter((quake) => {
-        const mag = quake.properties.mag
+        const mag = quake.magnitude
         return mag >= category.range[0] && mag < category.range[1]
       }).length
       return { ...category, count }
