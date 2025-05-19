@@ -46,7 +46,8 @@ export function TsunamiWarning({ earthquakes, onViewEarthquake }: TsunamiWarning
                 <div>
                   <h3 className="font-bold text-red-700 dark:text-red-300">TSUNAMI WARNING</h3>
                   <p className="text-sm mt-1">
-                    M{earthquake.magnitude.toFixed(1)} earthquake near {earthquake.place} may generate a tsunami.
+                    {earthquake.magnitude.toFixed(1)} {earthquake.type} earthquake near {earthquake.place} may generate
+                    a tsunami.
                   </p>
                   <div className="mt-2 flex gap-2">
                     <Badge variant="outline" className="bg-red-100 dark:bg-red-900 border-red-300 dark:border-red-700">

@@ -70,7 +70,7 @@ export function EarthquakeDetails({ earthquake, onClose, history = [] }: Earthqu
           <div>
             <CardTitle className="text-xl flex items-center gap-2">
               <Badge className={getMagnitudeColor(magnitude)}>
-                M{magnitude.toFixed(1)} {type}
+                {magnitude.toFixed(1)} {type}
               </Badge>
               {place}
             </CardTitle>
@@ -180,7 +180,7 @@ export function EarthquakeDetails({ earthquake, onClose, history = [] }: Earthqu
       <CardFooter>
         <Button variant="outline" className="w-full">
           <a
-            href={`https://www.emsc-csem.org/Earthquake/earthquake.php?id=${_id}`}
+            href={`https://volcanoyt.com/earthquake/track/${_id}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-2"

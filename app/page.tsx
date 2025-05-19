@@ -397,8 +397,9 @@ export default function Home() {
         const oldQuake = prevEarthquakes[id]
         const changes: EarthquakeChange[] = []
 
-        // Check for property changes
-        const propertiesToCheck = ["magnitude", "place", "status", "tsunami", "depth"]
+        // Check for property changes - expanded list of properties to track
+        const propertiesToCheck = ["magnitude", "place", "status", "tsunami", "depth", "type", "intensity", "source"]
+
         propertiesToCheck.forEach((prop) => {
           if (oldQuake[prop as keyof EarthquakeInfo] !== quake[prop as keyof EarthquakeInfo]) {
             changes.push({
@@ -409,6 +410,19 @@ export default function Home() {
             })
           }
         })
+
+        // Check for location changes
+        if (
+          oldQuake.location.coordinates[0] !== quake.location.coordinates[0] ||
+          oldQuake.location.coordinates[1] !== quake.location.coordinates[1]
+        ) {
+          changes.push({
+            property: "location",
+            oldValue: `${oldQuake.location.coordinates[0]}, ${oldQuake.location.coordinates[1]}`,
+            newValue: `${quake.location.coordinates[0]}, ${quake.location.coordinates[1]}`,
+            timestamp: Date.now(),
+          })
+        }
 
         // If there are changes, update history and mark as updated
         if (changes.length > 0) {
@@ -944,7 +958,7 @@ export default function Home() {
                             </div>
                             <div className="flex flex-col items-end gap-1">
                               <Badge className={getMagnitudeColor(quake.magnitude)}>
-                                M{quake.magnitude.toFixed(1)} {quake.type}
+                                {quake.magnitude.toFixed(1)} {quake.type}
                               </Badge>
                               <Badge variant="outline" className={getDepthColor(quake.depth)}>
                                 {quake.depth.toFixed(1)} km
