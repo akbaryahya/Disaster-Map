@@ -7,6 +7,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useEffect } from "react"
 
 // Define available map layers
 export const MAP_LAYERS = [
@@ -22,6 +23,27 @@ export const MAP_LAYERS = [
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution:
       "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
+  },
+  {
+    id: "google-satellite",
+    name: "Google Satellite",
+    url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+    attribution: "&copy; Google Maps",
+    maxZoom: 20,
+  },
+  {
+    id: "google-hybrid",
+    name: "Google Hybrid",
+    url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+    attribution: "&copy; Google Maps",
+    maxZoom: 20,
+  },
+  {
+    id: "google-terrain",
+    name: "Google Terrain",
+    url: "https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}",
+    attribution: "&copy; Google Maps",
+    maxZoom: 20,
   },
   {
     id: "terrain",
@@ -46,6 +68,9 @@ export const MAP_LAYERS = [
   },
 ]
 
+// Local storage key for map layer preference
+const MAP_LAYER_STORAGE_KEY = "earthquakeMapLayer"
+
 interface MapLayerSelectorProps {
   selectedLayer: string
   onLayerChange: (layerId: string) => void
@@ -54,6 +79,11 @@ interface MapLayerSelectorProps {
 export function MapLayerSelector({ selectedLayer, onLayerChange }: MapLayerSelectorProps) {
   // Find the currently selected layer
   const currentLayer = MAP_LAYERS.find((layer) => layer.id === selectedLayer) || MAP_LAYERS[0]
+
+  // Save layer selection to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem(MAP_LAYER_STORAGE_KEY, selectedLayer)
+  }, [selectedLayer])
 
   return (
     <DropdownMenu>

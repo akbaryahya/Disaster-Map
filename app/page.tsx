@@ -13,7 +13,7 @@ import { EarthquakeStatistics } from "@/components/earthquake-statistics"
 import { DistanceSettings } from "@/components/distance-settings"
 import { ChevronDown, ChevronUp, List, BellRing, BellOff, MapPin, Volume2, VolumeX, Map } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { MapLayerSelector } from "@/components/map-layer-selector"
+import { MapLayerSelector, MAP_LAYERS } from "@/components/map-layer-selector"
 import { EarthquakeDetails } from "@/components/earthquake-details"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
@@ -38,6 +38,9 @@ const EarthquakeMap = dynamic(() => import("@/components/earthquake-map"), {
 
 // Duration for blinking effect in milliseconds
 const BLINK_DURATION = 10000 // 10 seconds
+
+// Local storage key for map layer preference
+const MAP_LAYER_STORAGE_KEY = "earthquakeMapLayer"
 
 export default function Home() {
   const [earthquakes, setEarthquakes] = useState<any[]>([])
@@ -80,7 +83,7 @@ export default function Home() {
   // Create a ref to store the previous earthquakes for comparison
   const prevEarthquakesRef = useRef<{ [id: string]: any }>({})
 
-  // Load earthquake history from localStorage on component mount
+  // Load earthquake history and settings from localStorage on component mount
   useEffect(() => {
     const loadedHistory = loadEarthquakeHistory()
     setEarthquakeHistory(loadedHistory)
@@ -104,6 +107,12 @@ export default function Home() {
       setSoundEnabled(savedSound === "true")
     }
 
+    // Load map layer setting from localStorage
+    const savedMapLayer = localStorage.getItem(MAP_LAYER_STORAGE_KEY)
+    if (savedMapLayer !== null && MAP_LAYERS.some((layer) => layer.id === savedMapLayer)) {
+      setSelectedMapLayer(savedMapLayer)
+    }
+
     // Schedule periodic cleanup of old history entries
     const cleanupInterval = setInterval(
       () => {
@@ -116,6 +125,12 @@ export default function Home() {
       clearInterval(cleanupInterval)
     }
   }, [])
+
+  // Handle map layer change
+  const handleMapLayerChange = (layerId: string) => {
+    setSelectedMapLayer(layerId)
+    // The saving to localStorage is now handled in the MapLayerSelector component
+  }
 
   // Effect to remove earthquakes from the "new" list after the blink duration
   useEffect(() => {
@@ -640,7 +655,7 @@ export default function Home() {
         <h1 className="text-2xl font-bold">Earthquake Monitor</h1>
         <div className="flex items-center gap-2">
           {/* Map layer selector */}
-          <MapLayerSelector selectedLayer={selectedMapLayer} onLayerChange={setSelectedMapLayer} />
+          <MapLayerSelector selectedLayer={selectedMapLayer} onLayerChange={handleMapLayerChange} />
 
           <Button
             variant="outline"

@@ -226,10 +226,10 @@ const EarthquakeMap = forwardRef<EarthquakeMapRef, EarthquakeMapProps>(
         tileLayerRef.current.remove()
       }
 
-      // Add the new tile layer
+      // Add the new tile layer with the layer's maxZoom if specified
       tileLayerRef.current = L.tileLayer(selectedLayer.url, {
         attribution: selectedLayer.attribution,
-        maxZoom: 18,
+        maxZoom: selectedLayer.maxZoom || 18,
       }).addTo(mapRef.current)
     }, [mapLayerId])
 
