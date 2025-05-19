@@ -32,8 +32,14 @@ export function DistanceSettings({ onDistanceThresholdChange, onLocationChange }
   // Ref to track if location was manually set
   const isManualLocationUpdateRef = useRef<boolean>(false)
 
+  // Ref to prevent infinite update loops
+  const locationChangeInProgressRef = useRef<boolean>(false)
+
   // Load saved settings from localStorage on component mount
   useEffect(() => {
+    // Skip if we're already processing a location change
+    if (locationChangeInProgressRef.current) return
+
     const savedThreshold = localStorage.getItem("earthquakeDistanceThreshold")
     const savedUseCurrentLocation = localStorage.getItem("earthquakeUseCurrentLocation")
     const savedCustomLat = localStorage.getItem("earthquakeCustomLat")
@@ -51,12 +57,23 @@ export function DistanceSettings({ onDistanceThresholdChange, onLocationChange }
     } else if (savedCustomLat && savedCustomLng) {
       setCustomLat(savedCustomLat)
       setCustomLng(savedCustomLng)
+
       const lat = Number.parseFloat(savedCustomLat)
       const lng = Number.parseFloat(savedCustomLng)
+
       if (!isNaN(lat) && !isNaN(lng)) {
-        const location = { lat, lng }
-        setCurrentLocation(location)
-        onLocationChange(location)
+        locationChangeInProgressRef.current = true
+
+        try {
+          const location = { lat, lng }
+          setCurrentLocation(location)
+          onLocationChange(location)
+        } finally {
+          // Always reset the flag when done
+          setTimeout(() => {
+            locationChangeInProgressRef.current = false
+          }, 0)
+        }
       }
     }
 
@@ -94,32 +111,44 @@ export function DistanceSettings({ onDistanceThresholdChange, onLocationChange }
     // Start a new watcher
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        const location = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
+        // Skip if we're already processing a location change
+        if (locationChangeInProgressRef.current) return
+
+        locationChangeInProgressRef.current = true
+
+        try {
+          const location = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          }
+
+          setCurrentLocation(location)
+          onLocationChange(location)
+          setLocationStatus("success")
+
+          // Save to localStorage
+          localStorage.setItem("earthquakeUseCurrentLocation", "true")
+
+          // Only show toast on initial location acquisition or manual updates
+          if (isInitialLocationRef.current || isManualLocationUpdateRef.current) {
+            toast({
+              title: "Location Updated",
+              description: `Your location has been set to ${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`,
+              variant: "default",
+            })
+
+            // Reset the manual update flag
+            isManualLocationUpdateRef.current = false
+          }
+
+          // After first successful location, it's no longer initial
+          isInitialLocationRef.current = false
+        } finally {
+          // Always reset the flag when done
+          setTimeout(() => {
+            locationChangeInProgressRef.current = false
+          }, 0)
         }
-
-        setCurrentLocation(location)
-        onLocationChange(location)
-        setLocationStatus("success")
-
-        // Save to localStorage
-        localStorage.setItem("earthquakeUseCurrentLocation", "true")
-
-        // Only show toast on initial location acquisition or manual updates
-        if (isInitialLocationRef.current || isManualLocationUpdateRef.current) {
-          toast({
-            title: "Location Updated",
-            description: `Your location has been set to ${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`,
-            variant: "default",
-          })
-
-          // Reset the manual update flag
-          isManualLocationUpdateRef.current = false
-        }
-
-        // After first successful location, it's no longer initial
-        isInitialLocationRef.current = false
       },
       (error) => {
         console.error("Error getting location:", error)
@@ -155,24 +184,35 @@ export function DistanceSettings({ onDistanceThresholdChange, onLocationChange }
       return
     }
 
+    // Skip if we're already processing a location change
+    if (locationChangeInProgressRef.current) return
+
     // Set manual update flag to true
     isManualLocationUpdateRef.current = true
+    locationChangeInProgressRef.current = true
 
-    const location = { lat, lng }
-    setCurrentLocation(location)
-    onLocationChange(location)
-    setLocationStatus("success")
+    try {
+      const location = { lat, lng }
+      setCurrentLocation(location)
+      onLocationChange(location)
+      setLocationStatus("success")
 
-    // Save to localStorage
-    localStorage.setItem("earthquakeUseCurrentLocation", "false")
-    localStorage.setItem("earthquakeCustomLat", lat.toString())
-    localStorage.setItem("earthquakeCustomLng", lng.toString())
+      // Save to localStorage
+      localStorage.setItem("earthquakeUseCurrentLocation", "false")
+      localStorage.setItem("earthquakeCustomLat", lat.toString())
+      localStorage.setItem("earthquakeCustomLng", lng.toString())
 
-    toast({
-      title: "Location Updated",
-      description: `Custom location has been set to ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-      variant: "default",
-    })
+      toast({
+        title: "Location Updated",
+        description: `Custom location has been set to ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+        variant: "default",
+      })
+    } finally {
+      // Always reset the flag when done
+      setTimeout(() => {
+        locationChangeInProgressRef.current = false
+      }, 0)
+    }
   }
 
   // Handle distance threshold change

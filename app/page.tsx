@@ -228,6 +228,14 @@ export default function Home() {
   }
 
   const handleLocationChange = (location: { lat: number; lng: number } | null) => {
+    // Prevent unnecessary re-renders if the location hasn't actually changed
+    if (
+      location === userLocation ||
+      (location && userLocation && location.lat === userLocation.lat && location.lng === userLocation.lng)
+    ) {
+      return
+    }
+
     setUserLocation(location)
   }
 
