@@ -58,7 +58,7 @@ const BLINK_DURATION = 10000 // 10 seconds
 const MAP_LAYER_STORAGE_KEY = "earthquakeMapLayer"
 
 // API endpoint for earthquake data
-const EARTHQUAKE_API_URL = "https://volcanoyt.com/api/v1/list/earthquake"
+const EARTHQUAKE_API_URL = "https://api.volcanoyt.com/v1/list/earthquake"
 
 export default function Home() {
   const [earthquakes, setEarthquakes] = useState<EarthquakeInfo[]>([])
